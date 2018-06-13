@@ -1,0 +1,81 @@
+load('api_config.js');
+load('api_events.js');
+load('api_gpio.js');
+load('api_mqtt.js');
+load('api_net.js');
+load('api_sys.js');
+load('api_timer.js');
+load('api_adc.js');
+
+let led = Cfg.get('pins.led');
+let button = Cfg.get('pins.button');
+let topic = '/devices/' + Cfg.get('device.id') + '/events';
+let valor = 0;
+let valor_old=1000;
+let adc_cfg=ADC.enable(0);
+let deltaV=0;
+print('LED GPIO:', led, 'button GPIO:', button);
+print('configuracion de adc ',adc_cfg);
+
+let getInfo = function() {
+  return JSON.stringify({
+    total_ram: Sys.total_ram(),
+    free_ram: Sys.free_ram(),
+    mi_valor: deltaV
+  });
+};
+
+// Blink built-in LED every second
+//GPIO.set_mode(led, GPIO.MODE_OUTPUT);
+//Timer.set(1000 /* 1 sec */, Timer.REPEAT, function() {
+//  let value = GPIO.toggle(led);
+//  print(value ? 'Tick' : 'Tock', 'uptime:', Sys.uptime(), getInfo());
+//}, null);
+
+// Publish to MQTT topic on a button press. Button is wired to GPIO pin 0
+GPIO.set_button_handler(button, GPIO.PULL_UP, GPIO.INT_EDGE_NEG, 20, function() {
+  let message = getInfo();
+  GPIO.toggle(led);
+  let ok = MQTT.pub(topic, message, 1);
+  print('Published:', ok, topic, '->', message);
+}, null);
+
+// Monitor network connectivity.
+Event.addGroupHandler(Net.EVENT_GRP, function(ev, evdata, arg) {
+  let evs = '???';
+  if (ev === Net.STATUS_DISCONNECTED) {
+    evs = 'DISCONNECTED';
+  } else if (ev === Net.STATUS_CONNECTING) {
+    evs = 'CONNECTING';
+  } else if (ev === Net.STATUS_CONNECTED) {
+    evs = 'CONNECTED';
+  } else if (ev === Net.STATUS_GOT_IP) {
+    evs = 'GOT_IP';
+  }
+  print('== Net event:', ev, evs);
+}, null);
+
+//Send light change
+GPIO.set_button_handler(button, GPIO.PULL_UP, GPIO.INT_EDGE_NEG, 20, function() {
+  let message = getInfo();
+  let ok = MQTT.pub(topic, message, 1);
+  print('Published:', ok, topic, '->', message);
+}, null);
+
+//contador
+Timer.set(500 /* 10 secs */, Timer.REPEAT, function() {
+  valor = ADC.read(0);
+  deltaV = valor_old-valor;
+  print('delta', deltaV,'valor ',valor);
+  if(deltaV>50 || deltaV<-50)
+  {valor_old=valor;
+    let message = getInfo();
+  let okp = MQTT.pub(topic, message, 1);
+  print('variacion', deltaV,'valor actual',valor);
+  print('Publicado:', okp, topic, '->', message);
+  }
+  //MQTT.pub('my/topic', JSON.stringify({ a: 1, b: 2 }));
+  //let okp = MQTT.pub('valor de prueba',valor,1)
+  //GPIO.write(led,1);
+}, null);
+
